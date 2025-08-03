@@ -1,0 +1,30 @@
+{
+  "category": "job",
+  "filters": {
+    "query": "מתכנת פייתון",
+    "location": "מרכז"
+  },
+  "results": [
+    {
+      "title": "מתכנת פייתון למשרה מלאה",
+      "description": "חברת סטארטאפ בתל אביב מחפשת מתכנת פייתון עם ניסיון של שנה לפחות.",
+      "location": "תל אביב",
+      "salary": "12,000 ₪",
+      "url": "https://www.yad2.co.il/job/123456"
+    },
+    {
+      "title": "מפתח פייתון עם ניסיון ב-Django",
+      "description": "דרוש מפתח פייתון עם ניסיון ב-Django למשרה חלקית בגבעתיים.",
+      "location": "גבעתיים",
+      "salary": "8,000 ₪",
+      "url": "https://www.yad2.co.il/job/789012"
+    },
+    {
+      "title": "מתכנת פייתון עם ידע ב-AI",
+      "description": "חברת AI בתל אביב מחפשת מתכנת פייתון עם ידע במודלים של למידת מכונה.",
+      "location": "תל אביב",
+      "salary": "15,000 ₪",
+      "url": "https://www.yad2.co.il/job/345678"
+    }
+  ]
+}
