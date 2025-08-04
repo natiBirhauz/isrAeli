@@ -1,16 +1,14 @@
-# israeli-bot/backend/main.py
-
 import os
 import json
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import List, Dict, Any
-from openai import OpenAI  # <-- client class in new v1.x interface
-import os
-from dotenv import load_dotenv
+from openai import OpenAI
+
+# --- Setup and Initialization ---
 
 print("📂 Current working directory:", os.getcwd())
 
@@ -19,11 +17,17 @@ if os.path.exists(".env"):
 else:
     print("❌ .env file NOT FOUND")
 
-load_dotenv()  # טוען את קובץ ה-.env
+load_dotenv()
 
 api_key = os.getenv("OPENAI_API_KEY")
+
+# בדיקה קריטית בזמן הטעינה של האפליקציה
 if not api_key:
-    raise RuntimeError("OPENAI_API_KEY is not set in environment")
+    print("🚨 FATAL: OPENAI_API_KEY environment variable is not set. The application cannot start properly.")
+    # במצב אמיתי, אפשר אפילו לגרום לאפליקציה לקרוס כאן כדי למנוע ריצה במצב לא תקין
+else:
+    print("✅ OpenAI API key loaded successfully.")
+
 client = OpenAI(api_key=api_key)
 
 SYSTEM_PROMPT = """
@@ -36,17 +40,11 @@ SYSTEM_PROMPT = """
     - 'car' – חיפוש רכבים יד שנייה.
     - 'product' – חיפוש מוצרי צריכה אחרים.
 
-2. לחלץ מתוך השאילתה את הפרמטרים הרלוונטיים:
-    - location – מיקום גאוגרפי.
-    - price_range – טווח מחירים (אם קיים).
-    - rooms – מספר חדרים (בדירות בלבד).
-    - vehicle_type – סוג רכב (לרכב בלבד).
-    - job_type – סוג משרה (למשרות בלבד).
-    - other – כל פילטר נוסף שצויין (מותג, מפרט, מצב יד שנייה וכו').
+2. לחלץ מתוך השאילתה את הפרמטרים הרלוונטיים.
 
-3. לבצע חיפוש אמיתי ומדויק במקורות הרלוונטיים (באמצעות API או מידע עדכני) ולהחזיר תוצאות קיימות בלבד.
+3. לבצע חיפוש אמיתי ומדויק במקורות הרלוונטיים.
 
-4. להחזיר תשובה במבנה JSON תקני, כאשר שדות ה-details משתנים לפי סוג הקטגוריה:
+4. להחזיר תשובה במבנה JSON תקני, כאשר שדות ה-details משתנים לפי סוג הקטגוריה.
 
 פורמט JSON:
 {
@@ -67,31 +65,19 @@ SYSTEM_PROMPT = """
       "price": "מחיר או שכר, כולל מטבע",
       "url": "קישור ישיר למודעה",
       "details": {
-        // Jobs:
-        "job_type": "משרה מלאה | משרה חלקית | פרילנס",
-        "company": "שם החברה (אופציונלי)",
-        
-        // Cars:
-        "year": "שנת ייצור",
-        "hand": "יד",
-        "engine": "נפח מנוע בסמ״ק",
-        "kilometers": "קילומטראז׳",
-
-        // Apartments:
-        "floor": "קומה",
-        "area": "שטח דירה במ״ר",
-        "entry_date": "תאריך כניסה",
-
-        // Products:
-        "brand": "מותג",
-        "specs": "מפרט עיקרי"
+        "job_type": "משרה מלאה | משרה חלקית | פרילנס", "company": "שם החברה (אופציונלי)",
+        "year": "שנת ייצור", "hand": "יד", "engine": "נפח מנוע בסמ״ק", "kilometers": "קילומטראז׳",
+        "floor": "קומה", "area": "שטח דירה במ״ר", "entry_date": "תאריך כניסה",
+        "brand": "מותג", "specs": "מפרט עיקרי"
       }
     }
   ]
 }
 
-חובה להחזיר אך ורק תוצאות אמיתיות מתוך אתרי המודעות הרלוונטיים, ללא המצאות, השערות או תוכן לא מבוסס. אם אין תוצאות תואמות – החזר results ריק.
+ודא שהפלט הוא אובייקט JSON תקני בלבד, ללא כל טקסט מקדים או מסביב. אם אין תוצאות תואמות – החזר מערך results ריק בתוך ה-JSON.
 """
+
+# --- Pydantic Models ---
 
 class Item(BaseModel):
     title: str
@@ -99,98 +85,97 @@ class Item(BaseModel):
     location: str
     price: str
     url: str
+    details: Dict[str, Any]
 
 class SearchResponse(BaseModel):
     category: str
     filters: Dict[str, Any]
     results: List[Item]
 
+# --- FastAPI App Initialization ---
+
 app = FastAPI(
     title="ישראלi API",
-    version="1.0",
-    description="API לבוט AI למציאת עבודה, דירה או רכב בישראל"
+    version="1.1",
+    description="API לבוט AI למציאת עבודה, דירה או רכב בישראל, עם דיבאגינג מפורט."
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # אפשר גם לשים דומיין ספציפי במקום "*"
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# --- API Endpoints ---
+
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/docs")
 
-@app.get("/search", response_model=SearchResponse)
+@app.get("/search")
 async def search(q: str = Query(..., description="תיאור של מה שאתה מחפש")):
+    print("\n--- 1. Search endpoint entered ---")
+
+    # בדיקה מוקדמת אם המפתח קיים בכלל
+    if not api_key:
+        print("--- FATAL ERROR: OpenAI API key is missing at runtime! ---")
+        raise HTTPException(status_code=500, detail="Server is not configured with an OpenAI API key.")
+
+    print(f"--- 2. Query received: '{q}' ---")
+
     try:
+        print("--- 3. Preparing to call OpenAI API... ---")
         chat = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": q}
+                {"role": "user", "content": q}
             ],
             temperature=0.2,
-            max_tokens=600,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
         )
+        print("--- 4. OpenAI API call FINISHED successfully. ---")
+        response_content = chat.choices[0].message.content
+
     except Exception as e:
+        print(f"--- CRITICAL ERROR during OpenAI API call: {type(e).__name__} - {e} ---") # הדפסת סוג השגיאה והשגיאה
         err = getattr(e, "error", {})
         code = err.get("code") or getattr(e, "status_code", None)
         is_quota = code == "insufficient_quota" or code == 429
-
         if is_quota:
-            # במקרה של שגיאה במפתח API, מחזירים תוצאות מדומות
-            return SearchResponse(
-                category="job",
-                filters={"query": q},
-                results=[
-                    Item(
-                        title="Research Developer (Python)",
-                        description="חברה חסויה בתל אביב מחפשת מפתח/ת Python עם רקע חזק באבטחת מידע להצטרף לצוות מחקר מתקדם.",
-                        location="תל אביב",
-                        price="לא צויין",
-                        url="https://www.alljobs.co.il/Search/UploadSingle.aspx?JobID=8229160"
-                    ),
-                    Item(
-                        title="Experienced Python Developer",
-                        description="חברה בתל אביב מגייסת מפתח/ת Python מנוסה לצוות הפיתוח בתחום תשתיות נתונים.",
-                        location="תל אביב",
-                        price="לא צויין",
-                        url="https://www.alljobs.co.il/Search/UploadSingle.aspx?JobID=8231219"
-                    ),
-                    Item(
-                        title="Python Developer, Labs Team",
-                        description="חברה בתל אביב מחפשת מפתח/ת Python לצוות המעבדות, פיתוח תשתיות לשרתים פיזיים.",
-                        location="תל אביב",
-                        price="לא צויין",
-                        url="https://www.alljobs.co.il/Search/UploadSingle.aspx?JobID=8225565"
-                    ),
-                    Item(
-                        title="Fullstack Python Developer",
-                        description="חברת סטארטאפ מגייסת מפתח/ת Fullstack עם ניסיון חזק ב-Python לפיתוח מערכות Web מורכבות.",
-                        location="רמת גן",
-                        price="לא צויין",
-                        url="https://www.alljobs.co.il/Search/UploadSingle.aspx?JobID=8219947"
-                    ),
-                    Item(
-                        title="Python Developer",
-                        description="לחברת סייבר בתל אביב דרוש/ה מפתח/ת Python לפיתוח כלים אוטומטיים ובדיקות מערכת.",
-                        location="תל אביב",
-                        price="לא צויין",
-                        url="https://www.alljobs.co.il/Search/UploadSingle.aspx?JobID=8231272"
-                    )
-                ]
-            )
-        else:
-            raise HTTPException(status_code=500, detail=f"OpenAI API error: {e}")
+            raise HTTPException(status_code=429, detail="OpenAI quota exceeded.")
+        # הדפסה מפורטת יותר של השגיאה לפני שהיא נזרקת
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred with the OpenAI API: {str(e)}")
 
-    # Parse the response from OpenAI
+    print("--- 5. RAW OPENAI RESPONSE ---")
+    print(response_content)
+    print("----------------------------")
+
     try:
-        response_content = chat.choices[0].message.content
+        print("--- 6. Attempting to parse JSON... ---")
         data = json.loads(response_content)
+        validated_data = SearchResponse(**data)
+        print("--- 7. JSON parsed and validated successfully! Returning data. ---")
+        return validated_data
+    except ValidationError as e:
+        print(f"--- ERROR: Pydantic validation failed. Details: {e.errors()} ---")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "OpenAI response structure does not match the expected format.",
+                "validation_errors": e.errors(),
+                "raw_response": response_content
+            }
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse OpenAI response: {e}")
-
-    return SearchResponse(**data)
+        print(f"--- ERROR: Failed to process response. Type: {type(e).__name__}, Details: {e} ---")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "An unexpected error occurred while processing the response.",
+                "raw_response": response_content
+            }
+        )
