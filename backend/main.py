@@ -114,20 +114,55 @@ app.add_middleware(
 async def root():
     return RedirectResponse(url="/docs")
 
+@app.get("/validate-key")
+async def validate_key(user_api_key: str = Query(..., description="OpenAI API key to validate")):
+    """Validates a user-provided OpenAI API key by making a minimal test call."""
+    print("\n--- /validate-key endpoint entered ---")
+    try:
+        test_client = OpenAI(api_key=user_api_key)
+        test_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+        )
+        print("--- Key is valid ---")
+        return {"valid": True}
+    except Exception as e:
+        print(f"--- Key validation failed: {e} ---")
+        err = getattr(e, "error", {})
+        code = err.get("code") or getattr(e, "status_code", None)
+        if code == 401 or "Incorrect API key" in str(e):
+            raise HTTPException(status_code=401, detail="Invalid API key.")
+        if code == "insufficient_quota" or code == 429:
+            raise HTTPException(status_code=429, detail="API key has exceeded its quota.")
+        raise HTTPException(status_code=400, detail=f"Could not validate key: {str(e)}")
+
+
 @app.get("/search")
-async def search(q: str = Query(..., description="תיאור של מה שאתה מחפש")):
+async def search(
+    q: str = Query(..., description="תיאור של מה שאתה מחפש"),
+    user_api_key: str = Query(None, description="Optional user-provided OpenAI API key"),
+):
     print("\n--- 1. Search endpoint entered ---")
 
-    # בדיקה מוקדמת אם המפתח קיים בכלל
-    if not api_key:
-        print("--- FATAL ERROR: OpenAI API key is missing at runtime! ---")
-        raise HTTPException(status_code=500, detail="Server is not configured with an OpenAI API key.")
+    # Use user-provided key if supplied, otherwise fall back to server key
+    effective_key = user_api_key if user_api_key else api_key
 
-    print(f"--- 2. Query received: '{q}' ---")
+    if not effective_key:
+        print("--- FATAL ERROR: No OpenAI API key available! ---")
+        raise HTTPException(
+            status_code=400,
+            detail="No OpenAI API key provided. Please add your API key in the settings."
+        )
+
+    # Build a client with whichever key we're using
+    active_client = OpenAI(api_key=effective_key) if user_api_key else client
+
+    print(f"--- 2. Query received: '{q}' | Using {'user' if user_api_key else 'server'} key ---")
 
     try:
         print("--- 3. Preparing to call OpenAI API... ---")
-        chat = client.chat.completions.create(
+        chat = active_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -141,13 +176,14 @@ async def search(q: str = Query(..., description="תיאור של מה שאתה 
         response_content = chat.choices[0].message.content
 
     except Exception as e:
-        print(f"--- CRITICAL ERROR during OpenAI API call: {type(e).__name__} - {e} ---") # הדפסת סוג השגיאה והשגיאה
+        print(f"--- CRITICAL ERROR during OpenAI API call: {type(e).__name__} - {e} ---")
         err = getattr(e, "error", {})
         code = err.get("code") or getattr(e, "status_code", None)
         is_quota = code == "insufficient_quota" or code == 429
         if is_quota:
             raise HTTPException(status_code=429, detail="OpenAI quota exceeded.")
-        # הדפסה מפורטת יותר של השגיאה לפני שהיא נזרקת
+        if code == 401 or "Incorrect API key" in str(e):
+            raise HTTPException(status_code=401, detail="Invalid API key provided.")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred with the OpenAI API: {str(e)}")
 
     print("--- 5. RAW OPENAI RESPONSE ---")
