@@ -6,7 +6,7 @@ import logo from './assets/logo.png';
 
 // --- Environment Variables ---
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const API_BASE = "https://israeli-production.up.railway.app";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
 // --- Settings Modal ---
 function ApiKeyModal({ isOpen, onClose, onSave, currentKey }) {
@@ -290,7 +290,7 @@ function App() {
             </button>
           </div>
         ) : (
-          <GoogleLogin onSuccess={handleLoginSuccess} onError={handleLoginError} useOneTap />
+          <GoogleLogin onSuccess={handleLoginSuccess} onError={handleLoginError} />
         )}
       </header>
 
